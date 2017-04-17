@@ -23,7 +23,8 @@ from google.appengine.ext import db
 
 # set up jinja
 template_dir = os.path.join(os.path.dirname(__file__), "templates")
-jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir))
+jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir),
+                               autoescape = True)
 
 class Handler(webapp2.RequestHandler):
     def write(self, *a, **kw):
@@ -36,15 +37,33 @@ class Handler(webapp2.RequestHandler):
     def render(self, template, **kw):
         self.write(self.render_str(template, **kw))
 
+class NewPost(db.Model):
+    title = db.StringProperty(required = True)
+    body = db.TextProperty(required = True)
+    created = db.DateTimeProperty(auto_now_add = True)
 
 class MainPage(Handler):
+    def render_base(self, title="", body="", error=""):
+        posts = db.GqlQuery("SELECT * FROM Art "
+                            "ORDER BY created DESC ")
+
+        self.render("base.html", title=title, body=body, error=error, posts=posts)
+
     def get(self):
-        self.response.write('Hello world!')
+        self.render_base()
 
-#class Blog(db.Model):
+    def post(self):
+        title = self.request.get("title")
+        body = self.request.get("body")
 
-#class NewPost(db.Model):
+        if title and body:
+            a = NewPost(title = title, body = body)
+            a.put()
 
+            self.redirect("/")
+        else:
+            error = "Please provide both the title and the body of your post."
+            self.render_base(title, body, error)
 
 app = webapp2.WSGIApplication([
     ('/', MainPage),
