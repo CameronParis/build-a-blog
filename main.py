@@ -14,19 +14,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-import webapp2
-import cgi
-import jinja2
-import os
-import re
+import webapp2, jinja2, os, re
 from google.appengine.ext import db
+from models import Post
 
-# set up jinja
 template_dir = os.path.join(os.path.dirname(__file__), "templates")
 jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir),
                                autoescape = True)
 
-class Handler(webapp2.RequestHandler):
+class BlogHandler(webapp2.RequestHandler):
     def write(self, *a, **kw):
         self.response.out.write(*a, **kw)
 
@@ -37,36 +33,75 @@ class Handler(webapp2.RequestHandler):
     def render(self, template, **kw):
         self.write(self.render_str(template, **kw))
 
-class NewPost(db.Model):
-    title = db.StringProperty(required = True)
-    body = db.TextProperty(required = True)
-    created = db.DateTimeProperty(auto_now_add = True)
-
-class MainPage(Handler):
-    def render_base(self, title="", body="", error=""):
-        posts = db.GqlQuery("SELECT * FROM Art "
-                            "ORDER BY created DESC ")
-
-        self.render("base.html", title=title, body=body, error=error, posts=posts)
+class IndexHandler(BlogHandler):
+    def render_index(self):
+        self.render("index.html")
 
     def get(self):
-        self.render_base()
+        self.render_index()
 
+class BlogMain(BlogHandler):
+    def render_blog(self, title="", body="", error=""):
+        posts = db.GqlQuery("SELECT * FROM Post "
+                            "ORDER BY created DESC "
+                            "LIMIT 5")
+
+        self.render("blog.html", title=title, body=body, error=error, posts=posts)
+
+    def get(self):
+        self.render_blog()
+
+class NewPostHandler(BlogHandler):
+
+    def render_form(self, title="", body="", error=""):
+        """ Render the new post form with or without an error, based on parameters """
+        self.render("newpost.html", title=title, body=body, error=error)
+
+    def get(self):
+        self.render_form()
+        #self.render("newpost.html", title, body, error)
     def post(self):
+        """ Create a new blog post if possible. Otherwise, return with an error message """
         title = self.request.get("title")
         body = self.request.get("body")
 
         if title and body:
-            a = NewPost(title = title, body = body)
-            a.put()
 
-            self.redirect("/")
+            # create a new Post object and store it in the database
+            post = Post(
+                title=title,
+                body=body
+                )
+            post.put()
+
+            # get the id of the new post, so we can render the post's page (via the permalink)
+            id = post.key().id()
+            self.redirect("/blog/%s" % id)
         else:
-            error = "Please provide both the title and the body of your post."
-            self.render_base(title, body, error)
+            error = "we need both a title and a body!"
+            #self.render_form(title, body, error)
+            self.render("newpost.html", title, body, error)
+
+class ViewPostHandler(BlogHandler):
+
+    def get(self, id):
+        """ Render a page with post determined by the id (via the URL/permalink) """
+
+        post = Post.get_by_id(int(id))
+        if post:
+            #t = jinja_env.get_template("post.html")
+            #response = t.render(post=post)
+            self.render("post.html", post=post)
+        else:
+            error = "there is no post with id %s" % id
+            #t = jinja_env.get_template("404.html")
+            #response = t.render(error=error)
+            self.render("404.html", error=error)
+        #self.response.out.write(response)
 
 app = webapp2.WSGIApplication([
-    ('/', MainPage),
-    #('/blog', Blog),
-    #('/newpost', NewPost)
+    ('/', IndexHandler),
+    ('/blog/?', BlogMain),
+    ('/blog/newpost', NewPostHandler),
+    ('/blog/([0-9]+)', ViewPostHandler)
 ], debug=True)
